@@ -20,7 +20,7 @@ router.post("/", requireRole("SUPER_ADMIN", "OWNER", "MANAGER"), async (req: Aut
   const token = crypto.randomBytes(32).toString("hex");
   const slug = `device-${crypto.randomBytes(16).toString("hex")}`;
   const device = await prisma.device.create({ data: { ...parsed.data, label: parsed.data.label, organizationId: orgId, token, slug, source: parsed.data.source || (parsed.data.type === "QR" ? "QR" : "NFC") } });
-  const apiBase = (process.env.PUBLIC_API_URL || "https://tapzen-saas.onrender.com").replace(/\/$/, "");
+  const apiBase = (process.env.PUBLIC_API_URL || "https://tapzen-saas.onrender.com").replace(/\/+$/, "");
   return res.status(201).json({ device, redirectUrl: `${apiBase}/r/${token}` });
 });
 router.patch("/:id", requireRole("SUPER_ADMIN", "OWNER", "MANAGER"), async (req: AuthRequest, res: Response) => {
@@ -39,7 +39,8 @@ router.post("/:id/rotate-token", requireRole("SUPER_ADMIN","OWNER","MANAGER"), a
   if (!device) return res.status(404).json({ error: "DEVICE_NOT_FOUND" });
   const token = crypto.randomBytes(32).toString("hex");
   const updated = await prisma.device.update({ where: { id: device.id }, data: { token } });
-  return res.json({ device: updated, redirectUrl: `${(process.env.PUBLIC_API_URL || "https://tapzen-saas.onrender.com").replace(/\/$/, "")}/r/${token}` });
+  const apiBase = (process.env.PUBLIC_API_URL || "https://tapzen-saas.onrender.com").replace(/\/+$/, "");
+  return res.json({ device: updated, redirectUrl: `${apiBase}/r/${token}` });
 });
 router.delete("/:id", requireRole("SUPER_ADMIN","OWNER"), async (req: AuthRequest, res: Response) => {
   const device = await prisma.device.findFirst({ where: { id: req.params.id, organizationId: req.user!.organizationId } });
