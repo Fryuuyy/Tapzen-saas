@@ -19,17 +19,18 @@ router.get("/", async (req: AuthRequest, res: Response) => {
   return res.json({ profiles });
 });
 router.post("/", requireRole("SUPER_ADMIN","OWNER","MANAGER"), async (req: AuthRequest, res: Response) => {
-  const parsed = z.object({ title: z.string().trim().min(1).max(120), slug: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(80), description: z.string().max(1000).optional(), branchId: z.string().uuid().nullable().optional(), whatsapp: z.string().max(100).optional(), instagram: z.string().max(200).optional(), telegram: z.string().max(200).optional(), twogis: z.string().max(500).optional(), menuUrl: z.string().url().optional(), links: z.array(z.object({ label: z.string().max(60), url: z.string().url().max(2048) })).max(20).optional() }).safeParse(req.body);
+  const parsed = z.object({ title: z.string().trim().min(1).max(120), slug: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(80), description: z.string().max(1000).optional(), branchId: z.string().uuid().nullable().optional(), whatsapp: z.string().max(100).optional(), instagram: z.string().max(200).optional(), telegram: z.string().max(200).optional(), twogis: z.string().max(500).optional(), menuUrl: z.string().url().optional(), links: z.array(z.object({ label: z.string().trim().min(1).max(60), url: z.string().url().max(2048).refine(value => ["http:", "https:"].includes(new URL(value).protocol)) }).strict()).max(20).optional() }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() });
   const organizationId = req.user!.organizationId;
   if (parsed.data.branchId && !(await prisma.branch.findFirst({ where: { id: parsed.data.branchId, organizationId } }))) return res.status(400).json({ error: "INVALID_BRANCH" });
+  if (parsed.data.menuUrl && !["http:", "https:"].includes(new URL(parsed.data.menuUrl).protocol)) return res.status(400).json({ error: "INVALID_MENU_URL" });
   try {
     const profile = await prisma.profile.create({ data: { ...parsed.data, organizationId, branchId: parsed.data.branchId || null } });
     return res.status(201).json({ profile });
   } catch { return res.status(409).json({ error: "PROFILE_SLUG_TAKEN" }); }
 });
 router.patch("/:id", requireRole("SUPER_ADMIN","OWNER","MANAGER"), async (req: AuthRequest, res: Response) => {
-  const parsed = z.object({ title: z.string().trim().min(1).max(120).optional(), description: z.string().max(1000).nullable().optional(), isActive: z.boolean().optional(), isPublished: z.boolean().optional(), whatsapp: z.string().max(100).nullable().optional(), instagram: z.string().max(200).nullable().optional(), telegram: z.string().max(200).nullable().optional(), twogis: z.string().max(500).nullable().optional(), menuUrl: z.string().url().nullable().optional(), links: z.array(z.object({ label: z.string().max(60), url: z.string().url() })).max(20).optional() }).strict().safeParse(req.body);
+  const parsed = z.object({ title: z.string().trim().min(1).max(120).optional(), description: z.string().max(1000).nullable().optional(), isActive: z.boolean().optional(), isPublished: z.boolean().optional(), whatsapp: z.string().max(100).nullable().optional(), instagram: z.string().max(200).nullable().optional(), telegram: z.string().max(200).nullable().optional(), twogis: z.string().max(500).nullable().optional(), menuUrl: z.string().url().nullable().optional(), links: z.array(z.object({ label: z.string().trim().min(1).max(60), url: z.string().url().max(2048).refine(value => ["http:", "https:"].includes(new URL(value).protocol)) }).strict()).max(20).optional() }).strict().safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR" });
   const existing = await prisma.profile.findFirst({ where: { id: req.params.id, organizationId: req.user!.organizationId } });
   if (!existing) return res.status(404).json({ error: "PROFILE_NOT_FOUND" });
