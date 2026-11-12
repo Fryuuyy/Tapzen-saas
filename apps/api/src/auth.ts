@@ -47,6 +47,10 @@ router.post("/register", async (req: Request, res: Response) => {
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() });
   try {
+    // Validate auth configuration before writing anything to the database.
+    // Otherwise a missing/short JWT_SECRET could create the account and then fail
+    // while signing the response token, leaving the user unable to retry signup.
+    secret();
     const email = parsed.data.email.toLowerCase();
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) return res.status(409).json({ error: "EMAIL_ALREADY_REGISTERED" });
@@ -61,6 +65,13 @@ router.post("/register", async (req: Request, res: Response) => {
     return res.status(201).json({ token: signToken(result.user.id), user: { id: result.user.id, email: result.user.email, name: result.user.name }, organization: result.organization });
   } catch (error) {
     console.error("Registration failed", error);
+    // A concurrent signup can win the unique-email or unique-slug race.
+    if (typeof error === "object" && error !== null && "code" in error && (error as { code?: string }).code === "P2002") {
+      return res.status(409).json({ error: "EMAIL_OR_ORGANIZATION_ALREADY_EXISTS" });
+    }
+    if (error instanceof Error && error.message.includes("JWT_SECRET")) {
+      return res.status(500).json({ error: "SERVER_AUTH_CONFIGURATION_ERROR" });
+    }
     return res.status(500).json({ error: "REGISTRATION_FAILED" });
   }
 });
