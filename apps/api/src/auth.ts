@@ -6,8 +6,8 @@ import { prisma } from "./db";
 
 const router = require("express").Router();
 const secret = () => {
-  const value = process.env.JWT_SECRET;
-  if (!value || value.length < 32) throw new Error("JWT_SECRET must contain at least 32 characters");
+  const value = process.env.JWT_SECRET?.trim();
+  if (!value || Buffer.byteLength(value, "utf8") < 32) throw new Error("JWT_SECRET_NOT_CONFIGURED");
   return value;
 };
 export type AuthUser = { id: string; organizationId: string; role: string };
@@ -33,7 +33,7 @@ export async function authenticateToken(req: AuthRequest, res: Response, next: N
     req.user = { id: user.id, organizationId: membership.organizationId, role: membership.role };
     next();
   } catch (error) {
-    if (error instanceof Error && error.message.includes("JWT_SECRET")) return res.status(500).json({ error: "SERVER_AUTH_CONFIGURATION_ERROR" });
+    if (error instanceof Error && error.message === "JWT_SECRET_NOT_CONFIGURED") return res.status(503).json({ error: "SERVER_AUTH_CONFIGURATION_ERROR" });
     return res.status(401).json({ error: "INVALID_TOKEN" });
   }
 }
