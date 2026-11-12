@@ -1,0 +1,21 @@
+"use client";
+import { useEffect,useState } from "react";
+import { useRouter } from "next/navigation";
+import { api,apiBase } from "@/lib/api";
+import { messages,Locale } from "@/lib/i18n";
+type Org={id:string;name:string;slug:string;role:string};
+type Summary={summary:{scans:number;feedbackCount:number;devicesCount:number};recent:{id:string;createdAt:string;device:{label:string;source:string}}[]};
+export default function Dashboard(){
+ const [orgs,setOrgs]=useState<Org[]>([]),[orgId,setOrgId]=useState(""),[data,setData]=useState<Summary|null>(null),[locale,setLocale]=useState<Locale>("ru"),[error,setError]=useState("");
+ const router=useRouter(),t=messages[locale];
+ useEffect(()=>{if(!localStorage.getItem("tapzen_token")){router.replace("/login");return;}api<{organizations:Org[]}>("/api/organizations").then(r=>{setOrgs(r.organizations);if(r.organizations[0])setOrgId(r.organizations[0].id)}).catch(e=>setError(e.message));},[router]);
+ useEffect(()=>{if(orgId)api<Summary>(`/api/analytics/summary?organizationId=${orgId}&period=week`).then(setData).catch(e=>setError(e.message));},[orgId]);
+ function logout(){localStorage.removeItem("tapzen_token");router.push("/login")}
+ const cards=[["scans",data?.summary.scans??"—"],["devicesCount",data?.summary.devicesCount??"—"],["feedbackCount",data?.summary.feedbackCount??"—"]];
+ return <main className="min-h-screen md:flex"><aside className="border-b border-white/10 p-5 md:min-h-screen md:w-64 md:border-b-0 md:border-r"><a href="/" className="text-2xl font-black">TAPZEN<span className="lime">.</span></a><div className="muted mt-2 text-xs">BUSINESS WORKSPACE</div><nav className="mt-10 space-y-2">{[[t.overview,"/dashboard"],[t.profiles,"#profiles"],[t.devices,"#devices"],[t.feedback,"#feedback"],[t.analytics,"#analytics"],["AI-помощник","/dashboard/ai"],[t.settings,"#settings"]].map(([label,href])=><a key={label} href={href} className="block rounded-xl px-3 py-3 text-sm hover:bg-white/5">{label}</a>)}</nav><button onClick={logout} className="btn-secondary mt-10 w-full">{t.signOut}</button></aside>
+ <section className="min-w-0 flex-1 p-5 md:p-10"><header className="flex flex-wrap items-center justify-between gap-4"><div><div className="muted text-sm">{t.business}</div><h1 className="mt-1 text-3xl font-bold">{t.welcome}</h1></div><div className="flex gap-2"><select className="field w-auto" value={locale} onChange={e=>setLocale(e.target.value as Locale)}><option value="kk">Қазақша</option><option value="ru">Русский</option><option value="en">English</option></select><select className="field w-auto" value={orgId} onChange={e=>setOrgId(e.target.value)}>{orgs.map(o=><option key={o.id} value={o.id}>{o.name}</option>)}</select></div></header>
+ {error&&<div className="mt-6 rounded-xl border border-red-500/30 p-4 text-red-300">{error}</div>}
+ <div className="mt-8 grid gap-4 md:grid-cols-3">{cards.map(([key,value])=><div className="surface p-6" key={key}><div className="muted text-sm">{t[key as keyof typeof t]}</div><div className="mt-3 text-4xl font-bold">{value}</div></div>)}</div>
+ <div className="mt-8 grid gap-5 xl:grid-cols-2"><div className="surface p-6"><h2 className="text-lg font-bold">{t.quickActions}</h2><div className="mt-5 flex flex-wrap gap-3"><a className="btn" href="#profiles">{t.newProfile}</a><a className="btn-secondary" href="#devices">{t.newDevice}</a></div><p className="muted mt-5 text-sm">Profile and device management endpoints are available in the API. Dedicated editor screens are planned for the next iteration.</p></div><div className="surface p-6"><h2 className="text-lg font-bold">{t.recent}</h2><div className="mt-4 space-y-3">{data?.recent.map(e=><div key={e.id} className="flex justify-between border-b border-white/10 pb-3 text-sm"><span>{e.device.label} · {e.device.source}</span><span className="muted">{new Date(e.createdAt).toLocaleString()}</span></div>)}{!data?.recent.length&&<p className="muted text-sm">No events yet. Scan a demo device to create the first event.</p>}</div></div></div>
+ <div className="muted mt-8 text-xs">API: {apiBase} · TAPZEN MVP</div></section></main>
+}

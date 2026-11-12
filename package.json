@@ -1,0 +1,25 @@
+{
+  "name": "tapzen-mvp",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n API,WEB -c green,cyan \"npm run dev -w @tapzen/api\" \"npm run dev -w @tapzen/web\"",
+    "build": "npm run build -w @tapzen/api && npm run build -w @tapzen/web",
+    "db:generate": "npm run prisma:generate -w @tapzen/api",
+    "db:migrate": "npm run prisma:migrate -w @tapzen/api",
+    "db:seed": "npm run seed -w @tapzen/api",
+    "test": "npm run test -w @tapzen/api"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=20",
+    "npm": ">=10"
+  }
+}

@@ -1,0 +1,139 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+generator client {
+  provider = "prisma-client-js"
+}
+model User {
+  id           String       @id @default(uuid())
+  email        String       @unique
+  name         String
+  passwordHash String
+  locale       String       @default("ru")
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  memberships  Membership[]
+  auditLogs    AuditLog[]
+}
+model Organization {
+  id          String       @id @default(uuid())
+  name        String
+  slug        String       @unique
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  memberships Membership[]
+  branches    Branch[]
+  profiles    Profile[]
+  devices     Device[]
+  feedback    Feedback[]
+  auditLogs   AuditLog[]
+}
+model Membership {
+  id             String       @id @default(uuid())
+  userId         String
+  organizationId String
+  role           String       @default("STAFF")
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+}
+model Branch {
+  id             String       @id @default(uuid())
+  organizationId String
+  name           String
+  address        String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  devices        Device[]
+  profiles       Profile[]
+  feedback       Feedback[]
+  @@index([organizationId])
+}
+model Profile {
+  id             String       @id @default(uuid())
+  organizationId String
+  branchId       String?
+  slug           String       @unique
+  title          String
+  description    String?
+  locale         String       @default("ru")
+  isPublished    Boolean      @default(true)
+  isActive       Boolean      @default(true)
+  links          Json         @default("[]")
+  whatsapp       String?
+  instagram      String?
+  telegram       String?
+  twogis         String?
+  menuUrl        String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branch         Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  devices        Device[]
+  @@index([organizationId])
+  @@index([branchId])
+}
+model Device {
+  id             String       @id @default(uuid())
+  organizationId String
+  branchId       String?
+  profileId      String?
+  slug           String       @unique
+  token          String       @unique
+  label          String
+  type           String       @default("NFC")
+  source         String       @default("NFC")
+  destinationUrl String?
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branch         Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  profile        Profile?     @relation(fields: [profileId], references: [id], onDelete: SetNull)
+  scanEvents     ScanEvent[]
+  @@index([organizationId])
+  @@index([branchId])
+  @@index([profileId])
+}
+model ScanEvent {
+  id        String   @id @default(uuid())
+  deviceId  String
+  source    String   @default("NFC")
+  ipHash    String?
+  userAgent String?
+  referer   String?
+  createdAt DateTime @default(now())
+  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  @@index([deviceId, createdAt])
+  @@index([createdAt])
+}
+model Feedback {
+  id             String       @id @default(uuid())
+  organizationId String
+  branchId       String?
+  name           String?
+  contact        String?
+  message        String
+  status         String       @default("NEW")
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branch         Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  @@index([organizationId, createdAt])
+}
+model AuditLog {
+  id             String       @id @default(uuid())
+  organizationId String
+  userId         String?
+  action         String
+  details        String?
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  @@index([organizationId, createdAt])
+}

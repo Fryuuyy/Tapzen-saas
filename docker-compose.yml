@@ -1,0 +1,19 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tapzen
+      POSTGRES_PASSWORD: tapzen_dev_password
+      POSTGRES_DB: tapzen
+    ports:
+      - "5432:5432"
+    volumes:
+      - tapzen_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tapzen -d tapzen"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+volumes:
+  tapzen_pgdata:
