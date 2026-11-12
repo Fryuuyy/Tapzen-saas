@@ -20,7 +20,8 @@ router.post("/", requireRole("SUPER_ADMIN", "OWNER", "MANAGER"), async (req: Aut
   const token = crypto.randomBytes(32).toString("hex");
   const slug = `device-${crypto.randomBytes(16).toString("hex")}`;
   const device = await prisma.device.create({ data: { ...parsed.data, label: parsed.data.label, organizationId: orgId, token, slug, source: parsed.data.source || (parsed.data.type === "QR" ? "QR" : "NFC") } });
-  return res.status(201).json({ device, redirectUrl: `${(process.env.PUBLIC_APP_URL || process.env.WEB_ORIGIN || "http://localhost:3000").split(",")[0].replace(/\\/$/, "")}/r/${token}` });
+  const apiBase = (process.env.PUBLIC_API_URL || "https://tapzen-saas.onrender.com").replace(/\/$/, "");
+  return res.status(201).json({ device, redirectUrl: `${apiBase}/r/${token}` });
 });
 router.patch("/:id", requireRole("SUPER_ADMIN", "OWNER", "MANAGER"), async (req: AuthRequest, res: Response) => {
   const parsed = z.object({ label: z.string().trim().min(1).max(120).optional(), type: z.enum(["NFC","QR","LINK"]).optional(), branchId: z.string().uuid().nullable().optional(), profileId: z.string().uuid().nullable().optional(), destinationUrl: destinationSchema.nullable().optional(), isActive: z.boolean().optional() }).strict().refine(value => Object.keys(value).length > 0, "At least one field is required").safeParse(req.body);
