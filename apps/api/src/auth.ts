@@ -70,7 +70,7 @@ router.post("/register", async (req: Request, res: Response) => {
       return res.status(409).json({ error: "EMAIL_OR_ORGANIZATION_ALREADY_EXISTS" });
     }
     if (error instanceof Error && error.message.includes("JWT_SECRET")) {
-      return res.status(500).json({ error: "SERVER_AUTH_CONFIGURATION_ERROR" });
+      return res.status(503).json({ error: "SERVER_AUTH_CONFIGURATION_ERROR" });
     }
     return res.status(500).json({ error: "REGISTRATION_FAILED" });
   }
