@@ -28,10 +28,16 @@ export default function RegisterPage() {
       router.replace("/dashboard");
     } catch (err) {
       const code = err instanceof Error ? err.message : "REGISTRATION_FAILED";
+      if (err instanceof TypeError) {
+        setError("Не удалось связаться с сервером TAPZEN. Проверьте подключение и попробуйте ещё раз.");
+        return;
+      }
       const messages: Record<string, string> = {
         EMAIL_ALREADY_REGISTERED: "Этот email уже зарегистрирован. Войдите в аккаунт.",
+        EMAIL_OR_ORGANIZATION_ALREADY_EXISTS: "Этот email уже зарегистрирован или такое название рабочего пространства уже занято. Проверьте данные.",
+        SERVER_AUTH_CONFIGURATION_ERROR: "На сервере не настроена авторизация. Администратору нужно проверить JWT_SECRET.",
         VALIDATION_ERROR: "Проверьте имя, email и пароль (минимум 10 символов).",
-        REGISTRATION_FAILED: "Не удалось создать аккаунт. Попробуйте позже."
+        REGISTRATION_FAILED: "Не удалось создать аккаунт. Попробуйте позже или обратитесь в поддержку."
       };
       setError(messages[code] || messages.REGISTRATION_FAILED);
     } finally {
