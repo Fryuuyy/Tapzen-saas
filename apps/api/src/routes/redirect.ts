@@ -13,13 +13,14 @@ function getSource(req: Request): "NFC" | "QR" | "DIRECT" {
   return "DIRECT";
 }
 function hashVisitor(req: Request) {
-  const forwarded = process.env.TRUST_PROXY === "true" ? req.ip : req.socket.remoteAddress || "unknown";
+  const forwarded = req.ip || req.socket.remoteAddress || "unknown";
   const ua = String(req.headers["user-agent"] || "unknown").slice(0, 255);
   const salt = process.env.ANALYTICS_HASH_SECRET || process.env.JWT_SECRET || "development-only-change-me";
   return crypto.createHmac("sha256", salt).update(`${forwarded}|${ua}`).digest("hex");
 }
 router.get("/:token", async (req: Request, res: Response) => {
   try {
+    if (!/^[a-f0-9]{32,128}$/i.test(req.params.token)) return res.status(404).send("TAPZEN device not found or inactive");
     const device = await prisma.device.findUnique({ where: { token: req.params.token }, include: { profile: { select: { slug: true, isActive: true, isPublished: true } } } });
     if (!device || !device.isActive) return res.status(404).send("TAPZEN device not found or inactive");
     const source = getSource(req);
