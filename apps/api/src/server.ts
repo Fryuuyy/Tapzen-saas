@@ -1,4 +1,4 @@
-import express from "express";
+import express from "express";\nimport crypto from "crypto";
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
@@ -17,8 +17,20 @@ const app = express();
 app.disable("x-powered-by");
 app.set("trust proxy", process.env.TRUST_PROXY === "true" ? 1 : false);
 app.use(helmet());
-app.use(cors({ origin: process.env.WEB_ORIGIN?.split(",") || true, credentials: false }));
-app.use(express.json({ limit: "100kb" }));
+const allowedOrigins = (process.env.WEB_ORIGIN || "").split(",").map(value => value.trim()).filter(Boolean);
+app.use(cors({
+  origin(origin, callback) {
+    // Allow server-to-server requests and explicitly configured browser origins only.
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error("CORS_ORIGIN_DENIED"));
+  },
+  credentials: false,
+  methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Organization-Id"],
+  maxAge: 600
+}));
+app.use(express.json({ limit: "100kb", strict: true }));
+app.use(express.urlencoded({ extended: false, limit: "20kb" }));
 app.use("/auth", authRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api", rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: "draft-7", legacyHeaders: false }));
@@ -32,10 +44,11 @@ app.get("/api/organizations", authenticateToken, async (req: AuthRequest, res) =
   const memberships = await prisma.membership.findMany({ where: { userId: req.userId }, include: { organization: true } });
   return res.json({ organizations: memberships.map(m => ({ ...m.organization, role: m.role })) });
 });
-app.post("/api/organizations", authenticateToken, async (req: AuthRequest, res) => {
+app.post("/api/organizations", authenticateToken, requireRole("OWNER", "MANAGER", "SUPER_ADMIN"), async (req: AuthRequest, res) => {
   const parsed = z.object({ name: z.string().trim().min(2).max(120), slug: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(60).optional() }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR" });
-  const slug = parsed.data.slug || `${parsed.data.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}-${Math.random().toString(36).slice(2,7)}`;
+  const slugBase = parsed.data.name.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "business";
+  const slug = parsed.data.slug || `${slugBase.slice(0, 45)}-${crypto.randomBytes(4).toString("hex")}`;
   try {
     const org = await prisma.organization.create({ data: { name: parsed.data.name, slug } });
     await prisma.membership.create({ data: { userId: req.userId!, organizationId: org.id, role: "OWNER" } });
