@@ -66,6 +66,15 @@ app.get("/api/feedback", authenticateToken, async (req: AuthRequest, res) => {
   return res.json({ feedback });
 });
 app.get("/health", (_req, res) => res.json({ status: "ok", service: "TAPZEN API", timestamp: new Date().toISOString() }));
+app.get("/health/db", async (_req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    return res.json({ status: "ok", database: "connected", timestamp: new Date().toISOString() });
+  } catch (error) {
+    console.error("Database health check failed", error);
+    return res.status(503).json({ status: "error", database: "unavailable" });
+  }
+});
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error("Unhandled API error", err);
   res.status(500).json({ error: "INTERNAL_SERVER_ERROR" });
