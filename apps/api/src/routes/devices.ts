@@ -36,9 +36,9 @@ router.patch("/:id", requireRole("SUPER_ADMIN", "OWNER", "MANAGER"), async (req:
 router.post("/:id/rotate-token", requireRole("SUPER_ADMIN","OWNER","MANAGER"), async (req: AuthRequest, res: Response) => {
   const device = await prisma.device.findFirst({ where: { id: req.params.id, organizationId: req.user!.organizationId } });
   if (!device) return res.status(404).json({ error: "DEVICE_NOT_FOUND" });
-  const token = crypto.randomBytes(16).toString("hex");
+  const token = crypto.randomBytes(32).toString("hex");
   const updated = await prisma.device.update({ where: { id: device.id }, data: { token } });
-  return res.json({ device: updated, redirectUrl: `${process.env.PUBLIC_APP_URL || "http://localhost:4000"}/r/${token}` });
+  return res.json({ device: updated, redirectUrl: `${(process.env.PUBLIC_API_URL || "https://tapzen-saas.onrender.com").replace(/\/$/, "")}/r/${token}` });
 });
 router.delete("/:id", requireRole("SUPER_ADMIN","OWNER"), async (req: AuthRequest, res: Response) => {
   const device = await prisma.device.findFirst({ where: { id: req.params.id, organizationId: req.user!.organizationId } });
