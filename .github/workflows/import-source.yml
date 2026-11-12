@@ -1,0 +1,41 @@
+name: Import TAPZEN source archive
+
+on:
+  push:
+    paths:
+      - "TAPZEN_MVP_SOURCE.zip"
+
+permissions:
+  contents: write
+
+jobs:
+  extract-and-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Extract source project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f TAPZEN_MVP_SOURCE.zip
+          mkdir -p /tmp/tapzen-source
+          unzip -q TAPZEN_MVP_SOURCE.zip -d /tmp/tapzen-source
+          test -f /tmp/tapzen-source/package.json
+          test -d /tmp/tapzen-source/apps
+          cp -a /tmp/tapzen-source/. .
+          rm -f TAPZEN_MVP_SOURCE.zip
+      - name: Commit extracted project
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No extracted source changes."
+            exit 0
+          fi
+          git commit -m "Import TAPZEN MVP source project"
+          git push
