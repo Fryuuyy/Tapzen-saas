@@ -19,7 +19,9 @@ services:
         generateValue: true
       - key: ANALYTICS_HASH_SECRET
         generateValue: true
-      - key: COARENA_TERMS_ACCEPTED_BY_OWNER
-        value: "false"
+      - key: OPENAI_MODEL
+        value: gpt-6-luna
+      - key: OPENAI_API_KEY
+        sync: false
       - key: DATABASE_URL
         sync: false
