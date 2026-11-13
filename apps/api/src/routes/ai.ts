@@ -3,7 +3,7 @@ import multer from "multer";
 import pdf from "pdf-parse";
 import { z } from "zod";
 import { authenticateToken, AuthRequest } from "../auth";
-import { openaiChat, ChatMessage } from "../ai/coarena";
+import { openaiChat, ChatMessage } from "../ai/openai";
 import { prisma } from "../db";
 
 const router = Router();
