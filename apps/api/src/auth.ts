@@ -58,10 +58,13 @@ router.post("/register", async (req: Request, res: Response) => {
     if (existing) return res.status(409).json({ error: "EMAIL_ALREADY_REGISTERED" });
     const passwordHash = await bcrypt.hash(parsed.data.password, 12);
     const slug = `${(parsed.data.organizationName || parsed.data.name).toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "business"}-${Math.random().toString(36).slice(2, 8)}`;
+    const isFounder = Boolean(process.env.FOUNDER_EMAIL && email === process.env.FOUNDER_EMAIL.trim().toLowerCase());
     const result = await prisma.$transaction(async tx => {
       const user = await tx.user.create({ data: { email, name: parsed.data.name, passwordHash } });
-      const organization = await tx.organization.create({ data: { name: parsed.data.organizationName || `${parsed.data.name} business`, slug } });
-      await tx.membership.create({ data: { userId: user.id, organizationId: organization.id, role: "OWNER" } });
+      const organization = isFounder
+        ? await tx.organization.upsert({ where: { slug: "tapzen-platform" }, update: {}, create: { name: "TAPZEN Platform", slug: "tapzen-platform" } })
+        : await tx.organization.create({ data: { name: parsed.data.organizationName || `${parsed.data.name} business`, slug } });
+      await tx.membership.create({ data: { userId: user.id, organizationId: organization.id, role: isFounder ? "SUPER_ADMIN" : "OWNER" } });
       return { user, organization };
     });
     return res.status(201).json({
@@ -86,6 +89,16 @@ router.post("/login", async (req: Request, res: Response) => {
     const user = await prisma.user.findUnique({ where: { email: parsed.data.email.toLowerCase() } });
     if (!user?.passwordHash || !(await bcrypt.compare(parsed.data.password, user.passwordHash))) {
       return res.status(401).json({ error: "INVALID_CREDENTIALS" });
+    }
+    if (process.env.FOUNDER_EMAIL && user.email?.toLowerCase() === process.env.FOUNDER_EMAIL.trim().toLowerCase()) {
+      await prisma.$transaction(async tx => {
+        const organization = await tx.organization.upsert({ where: { slug: "tapzen-platform" }, update: {}, create: { name: "TAPZEN Platform", slug: "tapzen-platform" } });
+        await tx.membership.upsert({
+          where: { userId_organizationId: { userId: user.id, organizationId: organization.id } },
+          update: { role: "SUPER_ADMIN" },
+          create: { userId: user.id, organizationId: organization.id, role: "SUPER_ADMIN" }
+        });
+      });
     }
     return res.json({
       token: signToken(user.id),
