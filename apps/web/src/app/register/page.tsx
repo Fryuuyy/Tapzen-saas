@@ -1,77 +1,123 @@
 "use client";
-import { useState } from "react";
+
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
-import { messages, Locale } from "@/lib/i18n";
+import { Locale } from "@/lib/i18n";
 
-type RegisterResponse = { token: string; user: { id: string; email: string; name: string }; organization: { id: string; name: string; slug: string } };
+type RegisterResponse = { token: string; user: { id: string; phone: string; name: string }; organization: { id: string; name: string; slug: string } };
 
 export default function RegisterPage() {
   const router = useRouter();
   const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("+7");
+  const [code, setCode] = useState("");
   const [organizationName, setOrganizationName] = useState("");
-  const [password, setPassword] = useState("");
+  const [verificationToken, setVerificationToken] = useState("");
+  const [step, setStep] = useState<"phone" | "code" | "details">("phone");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [locale, setLocale] = useState<Locale>("ru");
-  const t = messages[locale];
 
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError("");
-    if (busy) return;
-    setBusy(true);
+  useEffect(() => {
+    const proof = sessionStorage.getItem("tapzen_phone_proof");
+    const verifiedPhone = sessionStorage.getItem("tapzen_verified_phone");
+    if (proof && verifiedPhone) {
+      setVerificationToken(proof);
+      setPhone(verifiedPhone);
+      setStep("details");
+    }
+  }, []);
+
+  const labels = {
+    ru: { title: "Создать аккаунт", subtitle: "Подтвердите номер телефона и создайте рабочее пространство TAPZEN.", name: "Ваше имя", phone: "Номер телефона", code: "Код из SMS", business: "Название бизнеса", send: "Получить SMS-код", verify: "Подтвердить номер", create: "Создать аккаунт", have: "Уже есть аккаунт?", login: "Войти", busy: "Подождите…", invalid: "Проверьте номер или код и попробуйте ещё раз." },
+    kk: { title: "Аккаунт жасау", subtitle: "Телефон нөмірін растап, TAPZEN жұмыс кеңістігін жасаңыз.", name: "Атыңыз", phone: "Телефон нөмірі", code: "SMS коды", business: "Бизнес атауы", send: "SMS кодын алу", verify: "Нөмірді растау", create: "Аккаунт жасау", have: "Аккаунтыңыз бар ма?", login: "Кіру", busy: "Күтіңіз…", invalid: "Нөмірді немесе кодты тексеріп, қайталап көріңіз." },
+    en: { title: "Create your account", subtitle: "Verify your phone number and create your TAPZEN workspace.", name: "Your name", phone: "Phone number", code: "SMS code", business: "Business name", send: "Send SMS code", verify: "Verify phone", create: "Create account", have: "Already have an account?", login: "Sign in", busy: "Please wait…", invalid: "Check your phone number or code and try again." }
+  }[locale];
+
+  async function sendCode() {
+    setBusy(true); setError("");
     try {
-      const result = await api<RegisterResponse>("/api/auth/register", {
-        method: "POST",
-        body: JSON.stringify({ name, email, password, ...(organizationName.trim() ? { organizationName: organizationName.trim() } : {}) })
+      await api("/api/auth/phone/send", { method: "POST", body: JSON.stringify({ phone: phone.trim() }) });
+      setStep("code");
+    } catch (err) {
+      setError(err instanceof Error && err.message === "SMS_PROVIDER_NOT_CONFIGURED" ? "SMS-провайдер ещё не настроен на сервере." : labels.invalid);
+    } finally { setBusy(false); }
+  }
+
+  async function verifyCode() {
+    setBusy(true); setError("");
+    try {
+      const result = await api<{ verified: boolean; registrationRequired: boolean; verificationToken?: string; token?: string }>("/api/auth/phone/verify", {
+        method: "POST", body: JSON.stringify({ phone: phone.trim(), code: code.trim() })
       });
+      if (result.token) {
+        localStorage.setItem("tapzen_token", result.token);
+        router.replace("/dashboard");
+        return;
+      }
+      if (!result.verificationToken) throw new Error("PHONE_VERIFICATION_FAILED");
+      setVerificationToken(result.verificationToken);
+      setStep("details");
+    } catch {
+      setError(labels.invalid);
+    } finally { setBusy(false); }
+  }
+
+  async function createAccount(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!verificationToken) { setError("Сначала подтвердите номер телефона."); setStep("phone"); return; }
+    setBusy(true); setError("");
+    try {
+      const result = await api<RegisterResponse>("/api/auth/phone/register", {
+        method: "POST",
+        body: JSON.stringify({ verificationToken, name: name.trim(), ...(organizationName.trim() ? { organizationName: organizationName.trim() } : {}) })
+      });
+      sessionStorage.removeItem("tapzen_phone_proof");
+      sessionStorage.removeItem("tapzen_verified_phone");
       localStorage.setItem("tapzen_token", result.token);
       router.replace("/dashboard");
     } catch (err) {
-      const code = err instanceof Error ? err.message : "REGISTRATION_FAILED";
-      if (err instanceof TypeError) {
-        setError(locale === "kk" ? "TAPZEN серверіне қосылу мүмкін болмады. Интернетті тексеріп, қайталап көріңіз." : locale === "en" ? "Unable to reach TAPZEN. Check your connection and try again." : "Не удалось связаться с TAPZEN. Проверьте подключение и попробуйте ещё раз.");
-        return;
-      }
-      const errorMessages: Record<string, Record<Locale, string>> = {
-        EMAIL_ALREADY_REGISTERED: { ru: "Этот email уже зарегистрирован. Войдите в аккаунт.", kk: "Бұл email бұрын тіркелген. Аккаунтыңызға кіріңіз.", en: "This email is already registered. Please sign in." },
-        EMAIL_OR_ORGANIZATION_ALREADY_EXISTS: { ru: "Этот email уже зарегистрирован или название рабочего пространства занято. Проверьте данные.", kk: "Бұл email тіркелген немесе жұмыс кеңістігінің атауы бос емес. Деректерді тексеріңіз.", en: "This email or workspace name is already in use. Please check your details." },
-        SERVER_AUTH_CONFIGURATION_ERROR: { ru: "Сервис авторизации временно недоступен. Попробуйте позже.", kk: "Авторизация қызметі уақытша қолжетімсіз. Кейінірек қайталаңыз.", en: "Authentication is temporarily unavailable. Please try again later." },
-        VALIDATION_ERROR: { ru: "Проверьте имя, email и пароль (минимум 10 символов).", kk: "Атыңызды, email және құпиясөзді тексеріңіз (кемінде 10 таңба).", en: "Check your name, email and password (at least 10 characters)." },
-        REGISTRATION_FAILED: { ru: "Не удалось создать аккаунт. Попробуйте позже или обратитесь в поддержку.", kk: "Аккаунт жасау мүмкін болмады. Кейінірек қайталаңыз немесе қолдау қызметіне хабарласыңыз.", en: "Could not create your account. Please try again later or contact support." }
-      };
-      setError(errorMessages[code]?.[locale] || errorMessages.REGISTRATION_FAILED[locale]);
-    } finally {
-      setBusy(false);
-    }
+      const code = err instanceof Error ? err.message : "";
+      setError(code === "PHONE_ALREADY_REGISTERED" ? "Этот номер уже зарегистрирован. Войдите в аккаунт." : code === "PHONE_VERIFICATION_EXPIRED" ? "Срок подтверждения истёк. Запросите новый SMS-код." : labels.invalid);
+    } finally { setBusy(false); }
   }
 
   return (
     <main className="flex min-h-screen items-center justify-center px-5 py-10">
-      <form onSubmit={submit} className="surface w-full max-w-md p-8">
-        <div className="flex items-center justify-between gap-3"><Link href="/" className="text-2xl font-black">TAPZEN<span className="lime">.</span></Link><select className="field w-auto" value={locale} onChange={e=>setLocale(e.target.value as Locale)} aria-label="Language"><option value="kk">Қазақша</option><option value="ru">Русский</option><option value="en">English</option></select></div>
-        <h1 className="mt-8 text-3xl font-bold">{locale === "kk" ? "Аккаунт жасау" : locale === "en" ? "Create your account" : "Создать аккаунт"}</h1>
-        <p className="muted mt-2">{locale === "kk" ? "Бизнесіңізді тіркеп, TAPZEN жұмыс кеңістігін ашыңыз." : locale === "en" ? "Register your business and open your TAPZEN workspace." : "Зарегистрируйте бизнес и откройте рабочее пространство TAPZEN."}</p>
-        <label className="mt-6 block text-sm">{locale === "kk" ? "Аты-жөніңіз" : locale === "en" ? "Your name" : "Ваше имя"}
-          <input className="field mt-2" value={name} onChange={e=>setName(e.target.value)} autoComplete="name" minLength={2} maxLength={100} required />
-        </label>
-        <label className="mt-4 block text-sm">Email
-          <input className="field mt-2" type="email" value={email} onChange={e=>setEmail(e.target.value)} autoComplete="email" maxLength={254} required />
-        </label>
-        <label className="mt-4 block text-sm">{locale === "kk" ? "Бизнес атауы" : locale === "en" ? "Business name" : "Название бизнеса"}
-          <input className="field mt-2" value={organizationName} onChange={e=>setOrganizationName(e.target.value)} minLength={2} maxLength={120} placeholder="Например, STEPPE Coffee" />
-        </label>
-        <label className="mt-4 block text-sm">{locale === "kk" ? "Құпиясөз" : locale === "en" ? "Password" : "Пароль"}
-          <input className="field mt-2" type="password" value={password} onChange={e=>setPassword(e.target.value)} autoComplete="new-password" minLength={10} maxLength={128} required />
-          <span className="muted mt-1 block text-xs">{locale === "kk" ? "Кемінде 10 таңба." : locale === "en" ? "At least 10 characters." : "Минимум 10 символов."}</span>
-        </label>
-        {error && <p role="alert" className="mt-4 rounded-lg border border-red-500/30 p-3 text-sm text-red-300">{error}</p>}
-        <button disabled={busy} className="btn mt-6 w-full disabled:opacity-60">{busy ? (locale === "kk" ? "Аккаунт жасалуда…" : locale === "en" ? "Creating account…" : "Создаём аккаунт…") : (locale === "kk" ? "Аккаунт жасау" : locale === "en" ? "Create account" : "Создать аккаунт")}</button>
-        <p className="muted mt-5 text-center text-sm">{locale === "kk" ? "Аккаунтыңыз бар ма?" : locale === "en" ? "Already have an account?" : "Уже есть аккаунт?"} <Link className="lime" href="/login">{t.login}</Link></p>
-      </form>
+      <section className="surface w-full max-w-md p-8">
+        <div className="flex items-center justify-between gap-3">
+          <Link href="/" className="text-2xl font-black">TAPZEN<span className="lime">.</span></Link>
+          <select className="field w-auto" value={locale} onChange={e => setLocale(e.target.value as Locale)} aria-label="Language">
+            <option value="kk">Қазақша</option><option value="ru">Русский</option><option value="en">English</option>
+          </select>
+        </div>
+        <h1 className="mt-8 text-3xl font-bold">{labels.title}</h1>
+        <p className="muted mt-2">{labels.subtitle}</p>
+
+        {step === "phone" && <div className="mt-6">
+          <label className="block text-sm">{labels.phone}<input className="field mt-2" type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="+77001234567" autoComplete="tel" maxLength={16} /></label>
+          <button disabled={busy || phone.trim().length < 9} onClick={sendCode} className="btn mt-6 w-full disabled:opacity-60">{busy ? labels.busy : labels.send}</button>
+        </div>}
+
+        {step === "code" && <div className="mt-6">
+          <p className="muted text-sm">SMS отправлено на {phone}</p>
+          <label className="mt-4 block text-sm">{labels.code}<input className="field mt-2 text-center text-xl tracking-[0.3em]" inputMode="numeric" autoComplete="one-time-code" value={code} onChange={e => setCode(e.target.value.replace(/\D/g, "").slice(0, 10))} maxLength={10} /></label>
+          <button disabled={busy || code.length < 4} onClick={verifyCode} className="btn mt-6 w-full disabled:opacity-60">{busy ? labels.busy : labels.verify}</button>
+          <button onClick={() => setStep("phone")} className="muted mt-4 w-full text-sm">Изменить номер</button>
+        </div>}
+
+        {step === "details" && <form className="mt-6" onSubmit={createAccount}>
+          <p className="mb-4 rounded-lg border border-white/10 p-3 text-sm text-green-300">✓ Номер {phone} подтверждён</p>
+          <label className="block text-sm">{labels.name}<input className="field mt-2" value={name} onChange={e => setName(e.target.value)} autoComplete="name" minLength={2} maxLength={100} required /></label>
+          <label className="mt-4 block text-sm">{labels.business}<input className="field mt-2" value={organizationName} onChange={e => setOrganizationName(e.target.value)} minLength={2} maxLength={120} placeholder="Например, STEPPE Coffee" /></label>
+          <button disabled={busy} className="btn mt-6 w-full disabled:opacity-60">{busy ? labels.busy : labels.create}</button>
+        </form>}
+
+        {error && <p role="alert" aria-live="polite" className="mt-4 rounded-lg border border-red-500/30 p-3 text-sm text-red-300">{error}</p>}
+        <p className="muted mt-6 text-center text-sm">{labels.have} <Link className="lime" href="/login">{labels.login}</Link></p>
+      </section>
     </main>
   );
 }
