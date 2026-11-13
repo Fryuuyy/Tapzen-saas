@@ -18,11 +18,22 @@ const app = express();
 app.disable("x-powered-by");
 app.set("trust proxy", process.env.TRUST_PROXY === "true" ? 1 : false);
 app.use(helmet());
-const allowedOrigins = (process.env.WEB_ORIGIN || "").split(",").map(value => value.trim()).filter(Boolean);
+const allowedOrigins = (process.env.WEB_ORIGIN || "").split(",").map(value => value.trim().replace(/\\/$/, "")).filter(Boolean);
+const isAllowedOrigin = (origin: string) => {
+  if (allowedOrigins.includes(origin)) return true;
+  try {
+    const url = new URL(origin);
+    // Only allow TAPZEN's own Vercel project hosts, including preview deployments.
+    return url.protocol === "https:" &&
+      (url.hostname === "tapzen-saas.vercel.app" ||
+       /^tapzen-saas-[a-z0-9-]+\\.vercel\\.app$/.test(url.hostname));
+  } catch {
+    return false;
+  }
+};
 app.use(cors({
   origin(origin, callback) {
-    // Allow server-to-server requests and explicitly configured browser origins only.
-    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    if (!origin || isAllowedOrigin(origin)) return callback(null, true);
     return callback(new Error("CORS_ORIGIN_DENIED"));
   },
   credentials: false,
