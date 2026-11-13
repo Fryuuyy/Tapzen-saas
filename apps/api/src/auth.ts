@@ -21,14 +21,17 @@ export async function authenticateToken(req: AuthRequest, res: Response, next: N
     if (!header?.startsWith("Bearer ")) return res.status(401).json({ error: "UNAUTHORIZED" });
     const payload = jwt.verify(header.slice(7), secret(), { issuer: "tapzen-api", audience: "tapzen-web" }) as jwt.JwtPayload;
     if (!payload.sub) return res.status(401).json({ error: "INVALID_TOKEN" });
-    const user = await prisma.user.findUnique({ where: { id: String(payload.sub) }, select: { id: true } });
+    const user = await prisma.user.findUnique({ where: { id: String(payload.sub) }, select: { id: true, email: true } });
     if (!user) return res.status(401).json({ error: "INVALID_TOKEN" });
     req.userId = user.id;
 
     const requestedOrg = String(req.headers["x-organization-id"] || req.query.organizationId || req.body?.organizationId || "");
+    const isFounder = Boolean(process.env.FOUNDER_EMAIL && user.email?.toLowerCase() === process.env.FOUNDER_EMAIL.trim().toLowerCase());
     const membership = requestedOrg
       ? await prisma.membership.findFirst({ where: { userId: user.id, organizationId: requestedOrg } })
-      : await prisma.membership.findFirst({ where: { userId: user.id }, orderBy: { createdAt: "asc" } });
+      : isFounder
+        ? await prisma.membership.findFirst({ where: { userId: user.id, role: "SUPER_ADMIN" }, orderBy: { createdAt: "asc" } })
+        : await prisma.membership.findFirst({ where: { userId: user.id }, orderBy: { createdAt: "asc" } });
     if (!membership) return res.status(403).json({ error: "ORGANIZATION_ACCESS_DENIED" });
     req.user = { id: user.id, organizationId: membership.organizationId, role: membership.role };
     next();
