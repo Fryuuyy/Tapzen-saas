@@ -89,6 +89,29 @@ app.get("/api/feedback", authenticateToken, async (req: AuthRequest, res) => {
   const feedback = await prisma.feedback.findMany({ where: { organizationId: req.user!.organizationId }, orderBy: { createdAt: "desc" }, take: 100 });
   return res.json({ feedback });
 });
+// Founder-only platform overview. Every endpoint is protected by the SUPER_ADMIN membership.
+const requireFounder = [authenticateToken, requireRole("SUPER_ADMIN")];
+app.get("/api/admin/overview", ...requireFounder, async (_req: AuthRequest, res) => {
+  const [users, organizations, branches, profiles, devices, scans, feedback, recentUsers, recentScans] = await Promise.all([
+    prisma.user.count(), prisma.organization.count(), prisma.branch.count(), prisma.profile.count(),
+    prisma.device.count(), prisma.scanEvent.count(), prisma.feedback.count(),
+    prisma.user.findMany({ orderBy: { createdAt: "desc" }, take: 8, select: { id: true, email: true, name: true, createdAt: true, memberships: { select: { role: true, organization: { select: { name: true } } } } } }),
+    prisma.scanEvent.findMany({ orderBy: { createdAt: "desc" }, take: 10, include: { device: { select: { label: true, organization: { select: { name: true } } } } } })
+  ]);
+  return res.json({ totals: { users, organizations, branches, profiles, devices, scans, feedback }, recentUsers, recentScans });
+});
+app.get("/api/admin/users", ...requireFounder, async (_req: AuthRequest, res) => {
+  const rows = await prisma.user.findMany({ orderBy: { createdAt: "desc" }, take: 200, select: { id: true, email: true, phone: true, name: true, locale: true, createdAt: true, memberships: { select: { role: true, organization: { select: { id: true, name: true, slug: true } } } } } });
+  return res.json({ users: rows });
+});
+app.get("/api/admin/organizations", ...requireFounder, async (_req: AuthRequest, res) => {
+  const rows = await prisma.organization.findMany({ orderBy: { createdAt: "desc" }, take: 200, include: { _count: { select: { memberships: true, branches: true, profiles: true, devices: true, feedback: true } } } });
+  return res.json({ organizations: rows });
+});
+app.get("/api/admin/devices", ...requireFounder, async (_req: AuthRequest, res) => {
+  const rows = await prisma.device.findMany({ orderBy: { createdAt: "desc" }, take: 200, select: { id: true, label: true, slug: true, type: true, source: true, isActive: true, createdAt: true, organization: { select: { name: true } }, branch: { select: { name: true } } } });
+  return res.json({ devices: rows });
+});
 app.get("/health", (_req, res) => res.json({ status: "ok", service: "TAPZEN API", timestamp: new Date().toISOString() }));
 app.get("/health/db", async (_req, res) => {
   try {
