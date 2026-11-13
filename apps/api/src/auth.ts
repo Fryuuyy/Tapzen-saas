@@ -26,48 +26,10 @@ export async function authenticateToken(req: AuthRequest, res: Response, next: N
     req.userId = user.id;
 
     const requestedOrg = String(req.headers["x-organization-id"] || req.query.organizationId || req.body?.organizationId || "");
-    const isFounder = Boolean(process.env.FOUNDER_EMAIL && user.email?.toLowerCase() === process.env.FOUNDER_EMAIL.trim().toLowerCase());
-    const membership = requestedOrg
-      ? await prisma.membership.findFirst({ where: { userId: user.id, organizationId: requestedOrg } })
-      : isFounder
-        ? await prisma.membership.findFirst({ where: { userId: user.id, role: "SUPER_ADMIN" }, orderBy: { createdAt: "asc" } })
-        : await prisma.membership.findFirst({ where: { userId: user.id }, orderBy: { createdAt: "asc" } });
-    if (!membership) return res.status(403).json({ error: "ORGANIZATION_ACCESS_DENIED" });
-    req.user = { id: user.id, organizationId: membership.organizationId, role: membership.role };
-    next();
-  } catch (error) {
-    if (error instanceof Error && error.message === "JWT_SECRET_NOT_CONFIGURED") return res.status(503).json({ error: "SERVER_AUTH_CONFIGURATION_ERROR" });
-    return res.status(401).json({ error: "INVALID_TOKEN" });
-  }
-}
-export const requireRole = (...roles: string[]) => (req: AuthRequest, res: Response, next: NextFunction) => {
-  if (!req.user || !roles.includes(req.user.role)) return res.status(403).json({ error: "FORBIDDEN" });
-  next();
-};
-
-router.post("/register", async (req: Request, res: Response) => {
-  const schema = z.object({
-    email: z.string().email().max(254),
-    name: z.string().trim().min(2).max(100),
-    password: z.string().min(10).max(128),
-    organizationName: z.string().trim().min(2).max(120).optional()
-  });
-  const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() });
-  try {
-    secret();
-    const email = parsed.data.email.toLowerCase();
-    const existing = await prisma.user.findUnique({ where: { email } });
-    if (existing) return res.status(409).json({ error: "EMAIL_ALREADY_REGISTERED" });
-    const passwordHash = await bcrypt.hash(parsed.data.password, 12);
-    const slug = `${(parsed.data.organizationName || parsed.data.name).toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "business"}-${Math.random().toString(36).slice(2, 8)}`;
-    const isFounder = Boolean(process.env.FOUNDER_EMAIL && email === process.env.FOUNDER_EMAIL.trim().toLowerCase());
     const result = await prisma.$transaction(async tx => {
       const user = await tx.user.create({ data: { email, name: parsed.data.name, passwordHash } });
-      const organization = isFounder
-        ? await tx.organization.upsert({ where: { slug: "tapzen-platform" }, update: {}, create: { name: "TAPZEN Platform", slug: "tapzen-platform" } })
-        : await tx.organization.create({ data: { name: parsed.data.organizationName || `${parsed.data.name} business`, slug } });
-      await tx.membership.create({ data: { userId: user.id, organizationId: organization.id, role: isFounder ? "SUPER_ADMIN" : "OWNER" } });
+      const organization = await tx.organization.create({ data: { name: parsed.data.organizationName || `${parsed.data.name} business`, slug } });
+      await tx.membership.create({ data: { userId: user.id, organizationId: organization.id, role: "OWNER" } });
       return { user, organization };
     });
     return res.status(201).json({
@@ -93,16 +55,6 @@ router.post("/login", async (req: Request, res: Response) => {
     if (!user?.passwordHash || !(await bcrypt.compare(parsed.data.password, user.passwordHash))) {
       return res.status(401).json({ error: "INVALID_CREDENTIALS" });
     }
-    if (process.env.FOUNDER_EMAIL && user.email?.toLowerCase() === process.env.FOUNDER_EMAIL.trim().toLowerCase()) {
-      await prisma.$transaction(async tx => {
-        const organization = await tx.organization.upsert({ where: { slug: "tapzen-platform" }, update: {}, create: { name: "TAPZEN Platform", slug: "tapzen-platform" } });
-        await tx.membership.upsert({
-          where: { userId_organizationId: { userId: user.id, organizationId: organization.id } },
-          update: { role: "SUPER_ADMIN" },
-          create: { userId: user.id, organizationId: organization.id, role: "SUPER_ADMIN" }
-        });
-      });
-    }
     return res.json({
       token: signToken(user.id),
       user: { id: user.id, email: user.email, name: user.name }
@@ -113,6 +65,34 @@ router.post("/login", async (req: Request, res: Response) => {
     }
     console.error("Login failed", error);
     return res.status(500).json({ error: "LOGIN_FAILED" });
+  }
+});
+
+router.post("/founder-bootstrap", authenticateToken, async (req: AuthRequest, res: Response) => {
+  const parsed = z.object({ setupKey: z.string().min(32).max(256) }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR" });
+  const configuredEmail = process.env.FOUNDER_EMAIL?.trim().toLowerCase();
+  const configuredKey = process.env.FOUNDER_SETUP_KEY;
+  if (!configuredEmail || !configuredKey) return res.status(503).json({ error: "FOUNDER_SETUP_NOT_CONFIGURED" });
+  const current = await prisma.user.findUnique({ where: { id: req.userId }, select: { id: true, email: true } });
+  if (!current || current.email?.toLowerCase() !== configuredEmail) return res.status(403).json({ error: "FOUNDER_EMAIL_MISMATCH" });
+  if (parsed.data.setupKey !== configuredKey) return res.status(403).json({ error: "INVALID_FOUNDER_SETUP_KEY" });
+  try {
+    await prisma.$transaction(async tx => {
+      const existing = await tx.membership.findFirst({ where: { role: "SUPER_ADMIN", NOT: { userId: current.id } } });
+      if (existing) throw new Error("FOUNDER_ALREADY_CLAIMED");
+      const organization = await tx.organization.upsert({ where: { slug: "tapzen-platform" }, update: {}, create: { name: "TAPZEN Platform", slug: "tapzen-platform" } });
+      await tx.membership.upsert({
+        where: { userId_organizationId: { userId: current.id, organizationId: organization.id } },
+        update: { role: "SUPER_ADMIN" },
+        create: { userId: current.id, organizationId: organization.id, role: "SUPER_ADMIN" }
+      });
+    });
+    return res.json({ success: true, role: "SUPER_ADMIN" });
+  } catch (error) {
+    if (error instanceof Error && error.message === "FOUNDER_ALREADY_CLAIMED") return res.status(409).json({ error: error.message });
+    console.error("Founder bootstrap failed", error);
+    return res.status(500).json({ error: "FOUNDER_SETUP_FAILED" });
   }
 });
 
