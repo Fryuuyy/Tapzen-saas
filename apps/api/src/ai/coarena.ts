@@ -1,40 +1,76 @@
 import { z } from "zod";
 
-export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
+export type ChatMessage = {
+  role: "system" | "user" | "assistant";
+  content: string;
+};
+
 const responseSchema = z.object({
-  choices: z.array(z.object({
-    message: z.object({ content: z.union([z.string(), z.array(z.any())]) })
+  output: z.array(z.object({
+    type: z.string().optional(),
+    content: z.array(z.object({
+      type: z.string().optional(),
+      text: z.string().optional()
+    })).optional()
   })).min(1),
-  model: z.string().optional()
+  model: z.string().optional(),
+  output_text: z.string().optional()
 });
 
-export async function coarenaChat(messages: ChatMessage[]) {
-  if (process.env.COARENA_TERMS_ACCEPTED_BY_OWNER !== "true") throw new Error("COARENA_TERMS_NOT_ACCEPTED");
-  const apiKey = process.env.COARENA_API_KEY;
+/**
+ * Server-side OpenAI Responses API client.
+ * OPENAI_API_KEY must only exist in the API service environment.
+ */
+export async function openaiChat(messages: ChatMessage[]) {
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) throw new Error("AI_PROVIDER_NOT_CONFIGURED");
-  const baseUrl = (process.env.COARENA_BASE_URL || "https://coarena.ai/api/v1").replace(/\/$/, "");
-  const model = process.env.COARENA_MODEL || "gemini-4-argon";
+
+  const model = process.env.OPENAI_MODEL?.trim() || "gpt-6-luna";
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 90_000);
+
   try {
-    const response = await fetch(`${baseUrl}/chat/completions`, {
+    const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model, messages, stream: false, max_tokens: 4096 }),
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model,
+        input: messages.map(({ role, content }) => ({ role, content })),
+        max_output_tokens: 4096,
+        store: false
+      }),
       signal: controller.signal
     });
-    const raw = await response.json().catch(() => null);
+
+    const raw: unknown = await response.json().catch(() => null);
     if (!response.ok) {
-      const code = raw?.error?.code || raw?.error?.type || "COARENA_REQUEST_FAILED";
-      const err = new Error(String(code));
-      (err as Error & { status?: number; detail?: string }).status = response.status;
-      (err as Error & { status?: number; detail?: string }).detail = String(raw?.error?.message || "Provider request failed").slice(0, 500);
+      const errorBody = raw as {
+        error?: { code?: string; type?: string; message?: string };
+      } | null;
+      const err = new Error(
+        String(errorBody?.error?.code || errorBody?.error?.type || "OPENAI_REQUEST_FAILED")
+      ) as Error & { status?: number; detail?: string };
+      err.status = response.status;
+      err.detail = String(errorBody?.error?.message || "OpenAI request failed").slice(0, 500);
       throw err;
     }
+
     const parsed = responseSchema.safeParse(raw);
-    if (!parsed.success) throw new Error("COARENA_INVALID_RESPONSE");
-    const content = parsed.data.choices[0].message.content;
-    const answer = typeof content === "string" ? content : content.map((x:any) => x.text || "").join("\n");
+    if (!parsed.success) throw new Error("OPENAI_INVALID_RESPONSE");
+
+    const answer = parsed.data.output_text ??
+      parsed.data.output
+        .filter((item) => item.type === "message" || item.type === undefined)
+        .flatMap((item) => item.content ?? [])
+        .filter((part) => part.type === "output_text" || part.type === undefined)
+        .map((part) => part.text ?? "")
+        .join("\n")
+        .trim();
+
+    if (!answer) throw new Error("OPENAI_EMPTY_RESPONSE");
     return { answer, model: parsed.data.model || model };
   } finally {
     clearTimeout(timeout);
