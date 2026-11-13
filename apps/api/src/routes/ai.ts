@@ -37,7 +37,6 @@ router.post("/chat", async (req: AuthRequest, res: Response) => {
   } catch (error) {
     const e = error as Error & { status?: number; detail?: string };
     console.error("TAPZEN AI chat failed:", e.message);
-    if (e.message === "OPENAI_TERMS_NOT_ACCEPTED") return res.status(403).json({ error: "OPENAI_TERMS_NOT_ACCEPTED", message: "Владелец аккаунта должен лично принять текущие условия OpenAI API и затем включить OPENAI_TERMS_ACCEPTED_BY_OWNER=true." });
     if (e.message === "AI_PROVIDER_NOT_CONFIGURED") return res.status(503).json({ error: "AI_NOT_CONFIGURED", message: "Добавьте OPENAI_API_KEY в серверный .env" });
     if (e.status === 429) return res.status(429).json({ error: "AI_RATE_LIMIT", message: "Лимит OpenAI API достигнут. Попробуйте позже." });
     if (e.status === 401 || e.status === 403) return res.status(502).json({ error: "AI_PROVIDER_AUTH_ERROR", message: "OpenAI отклонил API-ключ или доступ к модели. Проверьте настройки проекта и API-ключ." });
@@ -85,7 +84,6 @@ router.post("/business-insights", async (req: AuthRequest, res: Response) => {
   } catch (error) {
     const e = error as Error & { status?: number };
     console.error("TAPZEN business insights failed:", e.message);
-    if (e.message === "OPENAI_TERMS_NOT_ACCEPTED") return res.status(403).json({ error: "OPENAI_TERMS_NOT_ACCEPTED", message: "Владелец аккаунта должен лично принять текущие условия OpenAI API и затем включить OPENAI_TERMS_ACCEPTED_BY_OWNER=true." });
     if (e.message === "AI_PROVIDER_NOT_CONFIGURED") return res.status(503).json({ error: "AI_NOT_CONFIGURED" });
     if (e.status === 429) return res.status(429).json({ error: "AI_RATE_LIMIT" });
     return res.status(502).json({ error: "AI_INSIGHTS_FAILED" });
@@ -105,7 +103,6 @@ router.post("/pdf/analyze", upload.single("file"), async (req: AuthRequest, res:
   } catch (error) {
     const e = error as Error & { status?: number };
     console.error("TAPZEN PDF analysis failed:", e.message);
-    if (e.message === "OPENAI_TERMS_NOT_ACCEPTED") return res.status(403).json({ error: "OPENAI_TERMS_NOT_ACCEPTED", message: "Владелец аккаунта должен лично принять текущие условия OpenAI API и затем включить OPENAI_TERMS_ACCEPTED_BY_OWNER=true." });
     if (e.message === "AI_PROVIDER_NOT_CONFIGURED") return res.status(503).json({ error: "AI_NOT_CONFIGURED" });
     if (e.status === 429) return res.status(429).json({ error: "AI_RATE_LIMIT" });
     return res.status(502).json({ error: "PDF_ANALYSIS_FAILED", message: "Не удалось обработать документ." });
